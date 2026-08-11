@@ -86,7 +86,11 @@ def cache_result(ttl_seconds: int = CACHE_TTL):
 
             result = func(*args, **kwargs)
 
-            if isinstance(result, (dict, list)) and not (
+            if isinstance(result, BaseModel):
+                set_cached_val(cache_key, result.model_dump())
+            elif isinstance(result, list) and all(isinstance(item, BaseModel) for item in result):
+                set_cached_val(cache_key, [item.model_dump() for item in result])
+            elif isinstance(result, (dict, list)) and not (
                 isinstance(result, dict) and "error" in result
             ):
                 set_cached_val(cache_key, result)
@@ -682,6 +686,11 @@ def swing_calculate_position_size(
     risk_pct: float = Field(default=1.0, description="Max portfolio account risk percentage. Default 1.0 (1%)"),
     current_holdings: list[str] = Field(default=[], description="List of active stock tickers held in portfolio. Example: ['AAPL']")
 ) -> PositionSizeResult:
+    if account_value <= 0:
+        raise ValueError("account_value must be positive.")
+    if not (0 < risk_pct <= 100):
+        raise ValueError("risk_pct must be between 0 and 100.")
+
     t = yf.Ticker(symbol)
     hist = t.history(period="3mo")
     if hist.empty:
@@ -708,7 +717,7 @@ def swing_calculate_position_size(
         corr_matrix = data.pct_change().corr()
 
         for h in current_holdings:
-            if h in corr_matrix.columns and h != symbol:
+            if h in corr_matrix.columns and h != symbol and symbol in corr_matrix.index:
                 rho = corr_matrix.loc[symbol, h]
                 if rho > 0.70:
                     correlation_warnings.append(f"HIGH CORRELATION: {symbol} vs {h} (r = {round(float(rho), 2)})")
