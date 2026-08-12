@@ -10,6 +10,8 @@ import pandas as pd
 import yfinance as yf
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 # Setup startup and execution logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -20,6 +22,11 @@ CACHE_TTL = 12 * 3600  # 12 hours in seconds
 
 # Fixed: FastMCP initialized without removed keyword arguments 'description' or 'version'
 mcp = FastMCP(os.getenv("MCP_SERVER_NAME", "swing-trade-mcp"))
+
+
+@mcp.custom_route("/health", methods=["GET"])
+async def health(request: Request) -> JSONResponse:
+    return JSONResponse({"status": "ok"})
 
 # ------------------------------------------------------------------------------
 # DATABASE & CACHING LAYER
@@ -98,6 +105,24 @@ def cache_result(ttl_seconds: int = CACHE_TTL):
             return result
         return wrapper
     return decorator
+
+
+# ------------------------------------------------------------------------------
+# SHARED DATA HELPERS
+# ------------------------------------------------------------------------------
+
+def _extract_close_column(data: pd.DataFrame) -> pd.DataFrame:
+    """Pull the 'Close' field out of a yf.download MultiIndex column frame."""
+    return data["Close"] if "Close" in data.columns.get_level_values(0) else data.xs("Close", level=1, axis=1)
+
+
+def _compute_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """Compute the rolling Average True Range series from an OHLC DataFrame."""
+    high_low = df["High"] - df["Low"]
+    high_close = np.abs(df["High"] - df["Close"].shift())
+    low_close = np.abs(df["Low"] - df["Close"].shift())
+    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    return tr.rolling(period).mean()
 
 
 # ------------------------------------------------------------------------------
@@ -228,10 +253,15 @@ def swing_get_market_regime() -> MarketRegimeResult:
         raise ValueError("Failed to fetch market regime data.")
 
     if isinstance(data.columns, pd.MultiIndex):
-        data = data["Close"] if "Close" in data.columns.get_level_values(0) else data.xs("Close", level=1, axis=1)
+        data = _extract_close_column(data)
 
     vix = float(data["^VIX"].dropna().iloc[-1])
+
+    if "^VIX3M" not in data.columns or data["^VIX3M"].dropna().empty:
+        raise ValueError("Failed to fetch VIX3M data — required for term structure calculation")
     vix3m = float(data["^VIX3M"].dropna().iloc[-1])
+    if vix3m == 0:
+        raise ValueError("Failed to fetch VIX3M data — required for term structure calculation")
     vix_ratio = vix / vix3m
 
     spy_ret_21 = float(data["SPY"].dropna().pct_change(21).iloc[-1])
@@ -316,11 +346,7 @@ def swing_scan_universe(
             sma50 = float(df["Close"].rolling(50).mean().iloc[-1])
             sma200 = float(df["Close"].rolling(200).mean().iloc[-1])
 
-            high_low = df["High"] - df["Low"]
-            high_close = np.abs(df["High"] - df["Close"].shift())
-            low_close = np.abs(df["Low"] - df["Close"].shift())
-            tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-            atr14 = float(tr.rolling(14).mean().iloc[-1])
+            atr14 = float(_compute_atr(df).iloc[-1])
 
             vol_ratio = float(df["Volume"].iloc[-1] / df["Volume"].rolling(20).mean().iloc[-1])
 
@@ -336,7 +362,8 @@ def swing_scan_universe(
                     trend_aligned=bool(close > ema20 > sma50 > sma200),
                 )
             )
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Skipping {s}: {e}")
             continue
 
     return out
@@ -378,7 +405,7 @@ def swing_rank_relative_strength(
         return []
 
     if isinstance(data.columns, pd.MultiIndex):
-        data = data["Close"] if "Close" in data.columns.get_level_values(0) else data.xs("Close", level=1, axis=1)
+        data = _extract_close_column(data)
 
     returns_21 = data.pct_change(21).iloc[-1]
     returns_63 = data.pct_change(63).iloc[-1]
@@ -483,12 +510,23 @@ def swing_get_expected_move(
     now = pd.Timestamp.now()
     exp_dates = pd.to_datetime(expirations)
     days_diff = (exp_dates - now).days
-    closest_idx = int(np.abs(days_diff - target_days).argmin())
+
+    future_mask = days_diff > 0
+    if not future_mask.any():
+        raise ValueError(f"No future options expirations available for {symbol}")
+
+    future_indices = np.flatnonzero(future_mask)
+    future_days_diff = days_diff[future_mask]
+    closest_pos = int(np.abs(future_days_diff - target_days).argmin())
+    closest_idx = int(future_indices[closest_pos])
     target_exp = expirations[closest_idx]
     actual_days = max(1, int(days_diff[closest_idx]))
 
     opt = t.option_chain(target_exp)
     calls = opt.calls
+
+    if calls.empty:
+        raise ValueError(f"No call options available for {symbol} at expiration {target_exp}")
 
     atm_call = calls.iloc[(calls["strike"] - spot).abs().argmin()]
     iv = float(atm_call["impliedVolatility"])
@@ -712,7 +750,7 @@ def swing_calculate_position_size(
         data = yf.download(all_tickers, period="3mo", interval="1d", progress=False)
 
         if isinstance(data.columns, pd.MultiIndex):
-            data = data["Close"] if "Close" in data.columns.get_level_values(0) else data.xs("Close", level=1, axis=1)
+            data = _extract_close_column(data)
 
         corr_matrix = data.pct_change().corr()
 
@@ -781,11 +819,7 @@ def swing_calculate_atr_stops(
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
-    high_low = df["High"] - df["Low"]
-    high_close = np.abs(df["High"] - df["Close"].shift())
-    low_close = np.abs(df["Low"] - df["Close"].shift())
-    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    atr14 = float(tr.rolling(14).mean().iloc[-1])
+    atr14 = float(_compute_atr(df).iloc[-1])
 
     stop_loss = entry_price - (atr_multiplier * atr14)
     r_unit = entry_price - stop_loss
