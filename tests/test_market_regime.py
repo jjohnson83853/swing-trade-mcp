@@ -1,4 +1,6 @@
 """Characterization tests for swing_get_market_regime (server.py:219-257)."""
+import pytest
+
 import server
 from conftest import make_ohlcv, make_multi_ticker_df
 
@@ -68,3 +70,28 @@ def test_neutral_caution_when_no_bull_or_bear_trigger(mocker):
     assert result.spy_21d_ret_pct > -3.0
     assert result.regime == "NEUTRAL_CAUTION"
     assert result.warning is not None
+
+
+def test_missing_vix3m_column_raises_value_error(mocker):
+    spy = [400 + i for i in range(25)]
+    # Frame deliberately omits ^VIX3M entirely.
+    frame = make_multi_ticker_df(
+        {
+            "^VIX": make_ohlcv([15.0] * 25),
+            "SPY": make_ohlcv(spy),
+            "RSP": make_ohlcv(spy),
+        }
+    )
+    mocker.patch("server.yf.download", return_value=frame)
+
+    with pytest.raises(ValueError, match="VIX3M"):
+        server.swing_get_market_regime()
+
+
+def test_zero_vix3m_raises_value_error(mocker):
+    spy = [400 + i for i in range(25)]
+    frame = _regime_frame(vix=15.0, vix3m=0.0, spy_closes=spy)
+    mocker.patch("server.yf.download", return_value=frame)
+
+    with pytest.raises(ValueError, match="VIX3M"):
+        server.swing_get_market_regime()
