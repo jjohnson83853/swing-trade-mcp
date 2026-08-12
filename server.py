@@ -176,7 +176,7 @@ class ExpectedMoveResult(BaseModel):
 class BacktestSignalResult(BaseModel):
     symbol: str = Field(description="Stock ticker symbol")
     signal_type: str = Field(description="Signal tested: sma_crossover | rsi_oversold | breakout_20d")
-    hold_days: int = Field(description="Fixed holding period in calendar days")
+    hold_days: int = Field(description="Fixed holding period in trading days (bars), not calendar days")
     total_trades: int = Field(description="Total trade setups triggered in sample window")
     win_rate: float = Field(description="Win rate percentage as decimal (0.0 to 1.0)")
     expectancy_pct: float = Field(description="Expected return per trade in %")
@@ -562,7 +562,7 @@ DOMAIN KEYWORDS: backtest, signal test, win rate, trade expectancy, MAE, MFE, sm
 INPUTS:
   - symbol (str): Target ticker symbol.
   - signal_type (str, default 'sma_crossover'): One of 'sma_crossover', 'rsi_oversold', 'breakout_20d'.
-  - hold_days (int, default 21): Fixed holding window in calendar days.
+  - hold_days (int, default 21): Fixed holding window in trading days (bars), not calendar days.
   - lookback_years (int, default 2): Historical window evaluation in years (1 to 5).
 
 OUTPUTS:
@@ -589,7 +589,7 @@ RELATED TOOLS:
 def swing_backtest_signal(
     symbol: str = Field(description="Equity ticker. Example: 'MSFT'"),
     signal_type: str = Field(default="sma_crossover", description="Signal strategy: 'sma_crossover' | 'rsi_oversold' | 'breakout_20d'"),
-    hold_days: int = Field(default=21, description="Holding duration in calendar days. Default 21"),
+    hold_days: int = Field(default=21, description="Holding duration in trading days (bars), not calendar days. Default 21"),
     lookback_years: int = Field(default=2, description="Years of historical daily bars. Default 2")
 ) -> BacktestSignalResult:
     df = yf.download(symbol, period=f"{lookback_years}y", interval="1d", progress=False)
