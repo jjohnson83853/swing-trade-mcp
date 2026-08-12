@@ -22,10 +22,9 @@ jobs:
       - name: Log in to Registry
         run: echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login registry.localdomain:5000 -u "${{ secrets.REGISTRY_USER }}" --password-stdin
 
-      - name: Build Docker Image
+      - name: Build and Push Docker Image
         run: |
-          docker build -t registry.localdomain:5000/swing-trade-mcp:latest .
-
-      - name: Push Docker Image
-        run: |
-          docker push registry.localdomain:5000/swing-trade-mcp:latest
+          docker buildx build --push \
+            -t registry.localdomain:5000/swing-trade-mcp:latest \
+            -t registry.localdomain:5000/swing-trade-mcp:${{ github.sha }} \
+            .

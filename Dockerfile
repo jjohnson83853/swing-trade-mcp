@@ -7,13 +7,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-RUN pip install --no-cache-dir \
-    fastmcp \
-    yfinance \
-    pandas \
-    numpy \
-    pydantic
+# Install Python dependencies (pinned in requirements.txt)
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application server
 COPY server.py /app/server.py
