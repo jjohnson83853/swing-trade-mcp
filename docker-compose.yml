@@ -19,8 +19,15 @@ services:
     labels:
       # Picked up by Watchtower for auto-redeploy on new :latest pushes.
       - "com.centurylinklabs.watchtower.enable=true"
-    # healthcheck: inherited from the image's Dockerfile HEALTHCHECK — no
-    # need to redeclare here unless you want different timing.
+    # Declared explicitly (not just relying on the image's Dockerfile
+    # HEALTHCHECK) so `docker compose ps` / static scanners see it directly.
+    # Uses stdlib urllib instead of curl/wget — no extra binary required.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
 volumes:
   swing-trade-mcp-data:
