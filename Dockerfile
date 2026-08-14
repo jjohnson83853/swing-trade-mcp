@@ -2,11 +2,6 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install system dependencies for health checks and compilation
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
 # Install Python dependencies (pinned in requirements.txt)
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
@@ -23,8 +18,9 @@ ENV FASTMCP_PORT="8000"
 
 EXPOSE 8000
 
-# Container healthcheck targeting the MCP health endpoint
+# Container healthcheck targeting the MCP health endpoint.
+# Uses stdlib urllib instead of curl/wget so no extra system package is needed.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD python -c "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"
 
 CMD ["python", "server.py"]
