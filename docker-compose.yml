@@ -1,0 +1,25 @@
+services:
+  swing-trade-mcp:
+    image: registry.localdomain:5000/swing-trade-mcp:latest
+    container_name: swing-trade-mcp
+    restart: unless-stopped
+    ports:
+      - "${FASTMCP_PORT:-8000}:8000"
+    environment:
+      MCP_SERVER_NAME: ${MCP_SERVER_NAME:-swing-trade-mcp}
+      FASTMCP_HOST: "0.0.0.0"
+      FASTMCP_PORT: "8000"
+      FASTMCP_TRANSPORT: streamable-http
+      # Cache lives on a named volume so the 12h yfinance cache survives
+      # container recreates (e.g. Watchtower pulling a new :latest).
+      CACHE_DB_PATH: /data/cache.db
+    volumes:
+      - swing-trade-mcp-data:/data
+    labels:
+      # Picked up by Watchtower for auto-redeploy on new :latest pushes.
+      - "com.centurylinklabs.watchtower.enable=true"
+    # healthcheck: inherited from the image's Dockerfile HEALTHCHECK — no
+    # need to redeclare here unless you want different timing.
+
+volumes:
+  swing-trade-mcp-data:
