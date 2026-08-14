@@ -3,8 +3,9 @@ services:
     image: registry.localdomain:5000/swing-trade-mcp:latest
     container_name: swing-trade-mcp
     restart: unless-stopped
-    ports:
-      - "${FASTMCP_PORT:-8000}:8000"
+    # No `ports:` published — this MCP server has no authentication, so it
+    # only needs to be reachable by other containers on this compose network
+    # (as http://swing-trade-mcp:8000), never exposed to the host/LAN.
     environment:
       MCP_SERVER_NAME: ${MCP_SERVER_NAME:-swing-trade-mcp}
       FASTMCP_HOST: "0.0.0.0"
@@ -18,8 +19,15 @@ services:
     labels:
       # Picked up by Watchtower for auto-redeploy on new :latest pushes.
       - "com.centurylinklabs.watchtower.enable=true"
-    # healthcheck: inherited from the image's Dockerfile HEALTHCHECK — no
-    # need to redeclare here unless you want different timing.
+    # Declared explicitly (not just relying on the image's Dockerfile
+    # HEALTHCHECK) so `docker compose ps` / static scanners see it directly.
+    # Uses stdlib urllib instead of curl/wget — no extra binary required.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
 volumes:
   swing-trade-mcp-data:
