@@ -114,5 +114,5 @@ def test_empty_vix_series_raises_rather_than_index_error(mocker):
     )
     mocker.patch("server.yf.download", return_value=frame)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="VIX data"):
         server.swing_get_market_regime()

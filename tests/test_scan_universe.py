@@ -79,20 +79,15 @@ def test_scan_universe_clips_symbols_list_to_100(mocker):
     100 before download, per the len > 100 guard at server.py:325-326."""
     import pandas as pd
 
-    mocker.patch("server.yf.download", return_value=pd.DataFrame())
-
-    oversized = [f"T{i:03d}" for i in range(102)]
     captured = {}
-
-    original_download = __import__("yfinance").download
 
     def capturing_download(symbols, **kwargs):
         captured["symbols"] = symbols
         return pd.DataFrame()
 
-    import server as srv
     mocker.patch("server.yf.download", side_effect=capturing_download)
 
+    oversized = [f"T{i:03d}" for i in range(102)]
     swing_scan_universe(symbols=oversized)
 
     assert len(captured["symbols"]) == 100

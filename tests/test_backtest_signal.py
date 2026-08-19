@@ -53,22 +53,31 @@ def test_invalid_signal_type_raises(mocker):
 
 
 def test_rsi_oversold_signal_type_runs_without_raising(mocker):
-    """The rsi_oversold branch (server.py:610-616) must produce a valid result
-    struct with correctly bounded fields.  A series that dips from 100→70 then
-    recovers creates at least one RSI < 30 crossover."""
-    # 40 flat bars (RSI ~50), then a sharp drop that drives RSI below 30,
-    # then recovery — gives one oversold->above-30 crossover signal.
-    flat = [100.0] * 40
-    crash = [100.0 - 2.0 * i for i in range(1, 20)]   # drops to ~62 (-38%)
-    recovery = [62.0 + 2.0 * i for i in range(1, 25)]
-    df = make_ohlcv(flat + crash + recovery)
+    """The rsi_oversold branch (server.py:610-616) fires when RSI drops from
+    >= 30 to < 30.  That requires RSI to have been high first (an uptrend),
+    then a sharp crash that pushes RSI into oversold territory.
+
+    With a flat series gain=loss=0 → RSI=0 throughout: the prior-bar condition
+    `rsi.shift(1) >= 30` is never satisfied, so no signal fires.  Instead we
+    use a strong uptrend (RSI near 100) followed by a heavy crash that brings
+    RSI below 30, which guarantees at least one crossover signal.
+    """
+    # 50 bars of +2/day → RSI saturates near 100 (pure gains, no losses)
+    uptrend = [100.0 + 2.0 * i for i in range(50)]
+    # 25 bars of -8/day: losses overwhelm rolling-14 gain, RSI crosses below 30
+    # around bar 5-7 of the crash (when ~7+ of the 14 window bars are losses).
+    crash = [200.0 - 8.0 * i for i in range(25)]
+    # 40 bars of recovery so hold_days=10 exit window is always filled.
+    recovery = [0.0 + 1.5 * i for i in range(1, 42)]
+    df = make_ohlcv(uptrend + crash + recovery)
     mocker.patch("server.yf.download", return_value=df)
 
     result = server.swing_backtest_signal(symbol="TEST", signal_type="rsi_oversold", hold_days=10, lookback_years=2)
 
+    assert result.total_trades >= 1, (
+        "Expected at least one RSI oversold signal from uptrend→crash sequence"
+    )
     assert 0.0 <= result.win_rate <= 1.0
-    assert isinstance(result.total_trades, int)
-    assert result.total_trades >= 0
 
 
 def test_breakout_20d_signal_type_triggers_on_new_high(mocker):
