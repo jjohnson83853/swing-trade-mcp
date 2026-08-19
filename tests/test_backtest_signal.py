@@ -50,3 +50,49 @@ def test_invalid_signal_type_raises(mocker):
 
     with pytest.raises(ValueError):
         server.swing_backtest_signal(symbol="TEST", signal_type="not_a_real_signal", hold_days=21, lookback_years=2)
+
+
+def test_rsi_oversold_signal_type_runs_without_raising(mocker):
+    """The rsi_oversold branch (server.py:610-616) must produce a valid result
+    struct with correctly bounded fields.  A series that dips from 100→70 then
+    recovers creates at least one RSI < 30 crossover."""
+    # 40 flat bars (RSI ~50), then a sharp drop that drives RSI below 30,
+    # then recovery — gives one oversold->above-30 crossover signal.
+    flat = [100.0] * 40
+    crash = [100.0 - 2.0 * i for i in range(1, 20)]   # drops to ~62 (-38%)
+    recovery = [62.0 + 2.0 * i for i in range(1, 25)]
+    df = make_ohlcv(flat + crash + recovery)
+    mocker.patch("server.yf.download", return_value=df)
+
+    result = server.swing_backtest_signal(symbol="TEST", signal_type="rsi_oversold", hold_days=10, lookback_years=2)
+
+    assert 0.0 <= result.win_rate <= 1.0
+    assert isinstance(result.total_trades, int)
+    assert result.total_trades >= 0
+
+
+def test_breakout_20d_signal_type_triggers_on_new_high(mocker):
+    """The breakout_20d branch (server.py:617-619) fires when Close exceeds the
+    rolling 20-bar high of the *prior* day (high.rolling(20).max().shift(1)).
+    A flat series followed by a single price spike must produce at least one
+    signal."""
+    flat = [100.0] * 30
+    breakout = [110.0] * 30   # well above the prior 20-bar high of 100
+    df = make_ohlcv(flat + breakout)
+    mocker.patch("server.yf.download", return_value=df)
+
+    result = server.swing_backtest_signal(symbol="TEST", signal_type="breakout_20d", hold_days=10, lookback_years=2)
+
+    assert result.total_trades >= 1
+    assert 0.0 <= result.win_rate <= 1.0
+
+
+def test_backtest_raises_value_error_when_no_price_data(mocker):
+    """An empty DataFrame from yf.download must raise ValueError rather than
+    propagate a pandas error."""
+    import pandas as pd
+
+    mocker.patch("server.yf.download", return_value=pd.DataFrame())
+
+    with pytest.raises(ValueError, match="No historical price data"):
+        server.swing_backtest_signal(symbol="GONE", signal_type="sma_crossover", hold_days=21, lookback_years=2)
