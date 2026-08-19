@@ -116,5 +116,8 @@ def test_expected_move_arithmetic_is_correct(mocker):
 
     assert result.atm_implied_volatility == pytest.approx(iv * 100, abs=0.01)
     assert result.expected_move_dollars == pytest.approx(round(expected_em, 2), abs=0.01)
-    assert result.expected_upper_bound == pytest.approx(spot + round(expected_em, 2), abs=0.02)
-    assert result.expected_lower_bound == pytest.approx(spot - round(expected_em, 2), abs=0.02)
+    # Production uses round(spot ± em, 2) not spot ± round(em, 2) — match that
+    # to avoid rounding-boundary disagreements (e.g. round(208.765,2) may differ
+    # from 200.0 + round(8.765,2) due to Python's banker's rounding).
+    assert result.expected_upper_bound == pytest.approx(round(spot + expected_em, 2), abs=0.01)
+    assert result.expected_lower_bound == pytest.approx(round(spot - expected_em, 2), abs=0.01)
