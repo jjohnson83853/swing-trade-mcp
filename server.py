@@ -255,6 +255,8 @@ def swing_get_market_regime() -> MarketRegimeResult:
     if isinstance(data.columns, pd.MultiIndex):
         data = _extract_close_column(data)
 
+    if "^VIX" not in data.columns or data["^VIX"].dropna().empty:
+        raise ValueError("Failed to fetch VIX data — required for market regime calculation")
     vix = float(data["^VIX"].dropna().iloc[-1])
 
     if "^VIX3M" not in data.columns or data["^VIX3M"].dropna().empty:

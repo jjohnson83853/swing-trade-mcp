@@ -100,6 +100,33 @@ def test_position_size_rejects_negative_risk_pct(mocker):
 # held ticker succeeded). Intended behavior: don't crash, just skip/warn.
 # Expected to FAIL currently with KeyError from corr_matrix.loc[symbol, h].
 
+def test_position_size_rejects_risk_pct_above_100(mocker):
+    """risk_pct > 100 violates the 0 < risk_pct <= 100 guard (server.py:729)
+    and must raise ValueError before any network call is made."""
+    _mock_ticker(mocker, last_close=100.0)
+
+    with pytest.raises(ValueError):
+        server.swing_calculate_position_size(
+            symbol="NVDA", account_value=100_000.0, stop_price=95.0, risk_pct=101.0, current_holdings=[]
+        )
+
+
+def test_position_size_raises_when_no_price_data(mocker):
+    """When yf.Ticker.history() returns an empty DataFrame the function must
+    raise ValueError rather than propagate an IndexError from iloc[-1]."""
+    import pandas as pd
+    from unittest.mock import MagicMock
+
+    fake_ticker = MagicMock()
+    fake_ticker.history.return_value = pd.DataFrame()
+    mocker.patch("server.yf.Ticker", return_value=fake_ticker)
+
+    with pytest.raises(ValueError, match="No data"):
+        server.swing_calculate_position_size(
+            symbol="GONE", account_value=100_000.0, stop_price=95.0, risk_pct=1.0, current_holdings=[]
+        )
+
+
 def test_position_size_correlation_handles_missing_symbol_in_corr_matrix(mocker):
     _mock_ticker(mocker, last_close=100.0)
 

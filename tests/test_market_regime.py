@@ -95,3 +95,24 @@ def test_zero_vix3m_raises_value_error(mocker):
 
     with pytest.raises(ValueError, match="VIX3M"):
         server.swing_get_market_regime()
+
+
+def test_empty_vix_series_raises_rather_than_index_error(mocker):
+    """^VIX column present but all-NaN (e.g. network hiccup for that ticker)
+    must surface as a descriptive ValueError, not a bare IndexError from
+    iloc[-1].  The guard mirrors the existing ^VIX3M empty-series check."""
+    n = 25
+    spy = [400 + i for i in range(n)]
+    # Build a frame where ^VIX rows are all NaN so dropna() empties it.
+    frame = make_multi_ticker_df(
+        {
+            "^VIX": make_ohlcv([float("nan")] * n),
+            "^VIX3M": make_ohlcv([20.0] * n),
+            "SPY": make_ohlcv(spy),
+            "RSP": make_ohlcv(spy),
+        }
+    )
+    mocker.patch("server.yf.download", return_value=frame)
+
+    with pytest.raises(ValueError):
+        server.swing_get_market_regime()

@@ -77,3 +77,44 @@ def test_only_past_expirations_raises_value_error(mocker):
 
     with pytest.raises(ValueError, match="No future options expirations"):
         server.swing_get_expected_move(symbol="AAPL", target_days=21)
+
+
+def test_empty_expirations_list_raises_value_error(mocker):
+    """t.expirations returning an empty tuple/list must raise ValueError with
+    an appropriate message rather than propagating an index or type error."""
+    hist = make_ohlcv([100.0])
+    from unittest.mock import MagicMock
+    fake_ticker = MagicMock()
+    fake_ticker.history.return_value = hist
+    fake_ticker.expirations = []
+    mocker.patch("server.yf.Ticker", return_value=fake_ticker)
+
+    with pytest.raises(ValueError, match="No options chains"):
+        server.swing_get_expected_move(symbol="AAPL", target_days=21)
+
+
+def test_expected_move_arithmetic_is_correct(mocker):
+    """The expected-move formula is spot * iv * sqrt(actual_days / 365).
+    With known inputs we can cross-check the output values exactly."""
+    import numpy as np
+
+    future_exp = (pd.Timestamp.now() + pd.Timedelta(days=30)).strftime("%Y-%m-%d")
+    spot = 200.0
+    iv = 0.40  # 40% IV
+
+    _mock_ticker(
+        mocker,
+        spot=spot,
+        expirations=[future_exp],
+        calls_by_exp={future_exp: _calls_df([200.0], iv=iv)},
+    )
+
+    result = server.swing_get_expected_move(symbol="AAPL", target_days=30)
+
+    actual_days = result.target_days  # may differ slightly from 30 due to calendar
+    expected_em = spot * iv * np.sqrt(actual_days / 365.0)
+
+    assert result.atm_implied_volatility == pytest.approx(iv * 100, abs=0.01)
+    assert result.expected_move_dollars == pytest.approx(round(expected_em, 2), abs=0.01)
+    assert result.expected_upper_bound == pytest.approx(spot + round(expected_em, 2), abs=0.02)
+    assert result.expected_lower_bound == pytest.approx(spot - round(expected_em, 2), abs=0.02)

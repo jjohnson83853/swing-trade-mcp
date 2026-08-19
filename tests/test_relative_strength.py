@@ -47,3 +47,29 @@ def test_rank_relative_strength_returns_empty_when_no_data(mocker):
     results = server.swing_rank_relative_strength(symbols=["AAPL"], benchmark="SPY")
 
     assert results == []
+
+
+def test_rank_relative_strength_returns_empty_when_benchmark_missing_from_data(mocker):
+    """If the benchmark ticker is absent from the downloaded data
+    (server.py:413: `if benchmark not in returns_21: return []`) the function
+    must return [] rather than raising a KeyError."""
+    n = 70
+    # Download only contains the candidate symbol, not the benchmark.
+    frame = make_multi_ticker_df({"AAPL": make_ohlcv([100.0 + i for i in range(n)])})
+    mocker.patch("server.yf.download", return_value=frame)
+
+    results = swing_rank_relative_strength(symbols=["AAPL"], benchmark="SPY")
+
+    assert results == []
+
+
+def test_rank_relative_strength_symbol_equal_to_benchmark_is_excluded(mocker):
+    """Symbols that equal the benchmark are skipped (server.py:421: `s == benchmark`).
+    When the only candidate symbol IS the benchmark the result should be []."""
+    n = 70
+    frame = make_multi_ticker_df({"SPY": make_ohlcv([400.0 + i for i in range(n)])})
+    mocker.patch("server.yf.download", return_value=frame)
+
+    results = swing_rank_relative_strength(symbols=["SPY"], benchmark="SPY")
+
+    assert results == []
