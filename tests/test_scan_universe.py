@@ -103,3 +103,21 @@ def test_scan_universe_returns_empty_list_when_download_returns_no_data(mocker):
     results = swing_scan_universe(symbols=["AAPL", "MSFT"])
 
     assert results == []
+
+
+def test_scan_universe_logs_structured_field_for_skipped_symbol(mocker, caplog):
+    """A symbol dropped for insufficient history must log symbol/reason/bars
+    as structured extra_fields, not just a plain-text message -- proves the
+    logging.basicConfig -> structured JSON conversion actually carries the
+    dynamic data through instead of only avoiding a crash."""
+    short_df = make_ohlcv([100.0 + i for i in range(10)])
+    frame = make_multi_ticker_df({"SHORT": short_df})
+    mocker.patch("server.yf.download", return_value=frame)
+
+    with caplog.at_level("INFO", logger="swing-trade-mcp"):
+        swing_scan_universe(symbols=["SHORT"])
+
+    record = next(r for r in caplog.records if r.getMessage() == "symbol_skipped")
+    assert record.extra_fields["symbol"] == "SHORT"
+    assert record.extra_fields["reason"] == "insufficient_history"
+    assert record.extra_fields["bars"] == 10

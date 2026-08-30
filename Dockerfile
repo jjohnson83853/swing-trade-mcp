@@ -7,7 +7,7 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application server
-COPY server.py /app/server.py
+COPY server.py logging_config.py /app/
 
 # Configure environment variables for discoverability and logging
 ENV MCP_SERVER_NAME="swing-trade-mcp"

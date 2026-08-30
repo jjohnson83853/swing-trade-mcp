@@ -1,7 +1,6 @@
 import functools
 import hashlib
 import json
-import logging
 import os
 import sqlite3
 import time
@@ -13,9 +12,10 @@ from pydantic import BaseModel, Field
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from logging_config import setup_logging
+
 # Setup startup and execution logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger("swing-trade-mcp")
+logger = setup_logging("swing-trade-mcp")
 
 DB_PATH = os.getenv("CACHE_DB_PATH", "cache.db")
 CACHE_TTL = 12 * 3600  # 12 hours in seconds
@@ -91,7 +91,15 @@ def cache_result(ttl_seconds: int = CACHE_TTL):
             if cached_data is not None:
                 return cached_data
 
-            result = func(*args, **kwargs)
+            try:
+                result = func(*args, **kwargs)
+            except Exception:
+                logger.error(
+                    "tool_failed",
+                    extra={"extra_fields": {"tool": func.__name__}},
+                    exc_info=True,
+                )
+                raise
 
             if isinstance(result, BaseModel):
                 set_cached_val(cache_key, result.model_dump())
@@ -329,6 +337,7 @@ def swing_scan_universe(
 
     data = yf.download(symbols, period="6mo", interval="1d", progress=False)
     if data.empty:
+        logger.warning("scan_empty", extra={"extra_fields": {"symbol_count": len(symbols)}})
         return []
 
     out = []
@@ -341,6 +350,10 @@ def swing_scan_universe(
 
             df = df.dropna()
             if df.empty or len(df) < 50:
+                logger.info(
+                    "symbol_skipped",
+                    extra={"extra_fields": {"symbol": s, "reason": "insufficient_history", "bars": len(df)}},
+                )
                 continue
 
             close = float(df["Close"].iloc[-1])
@@ -365,9 +378,16 @@ def swing_scan_universe(
                 )
             )
         except Exception as e:
-            logger.warning(f"Skipping {s}: {e}")
+            logger.warning(
+                "symbol_skipped",
+                extra={"extra_fields": {"symbol": s, "reason": "exception", "error": str(e)}},
+            )
             continue
 
+    logger.info(
+        "scan_complete",
+        extra={"extra_fields": {"requested": len(symbols), "returned": len(out)}},
+    )
     return out
 
 
@@ -862,13 +882,17 @@ if __name__ == "__main__":
         "swing_calculate_atr_stops",
     ]
 
-    logger.info("==================================================")
-    logger.info("REGISTERING MCP TOOLS FOR SWING TRADING PIPELINE")
-    logger.info("==================================================")
-    for tool_name in tools_list:
-        logger.info(f"INFO: Registered tool: {tool_name}")
-    logger.info(f"INFO: Total tools registered: {len(tools_list)}")
-    logger.info("==================================================")
+    logger.info(
+        "startup",
+        extra={
+            "extra_fields": {
+                "tools": tools_list,
+                "tool_count": len(tools_list),
+                "cache_ttl_s": CACHE_TTL,
+                "db_path": DB_PATH,
+            }
+        },
+    )
 
     transport = os.getenv("FASTMCP_TRANSPORT", "streamable-http")
     host = os.getenv("FASTMCP_HOST", "0.0.0.0")
