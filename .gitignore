@@ -1,7 +1,8 @@
 .env
 *.log
-__pycache__/
 .venv/
 cache.db
 .pytest_cache/
-
+__pycache__/
+/.coverage
+/htmlcov/
